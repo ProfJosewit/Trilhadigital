@@ -354,6 +354,7 @@ const TeacherDashboardView = ({
   students, 
   addStudent, 
   bulkAddStudents, 
+  deleteAllStudents,
   updateStudent, 
   deleteStudent, 
   searchQuery, 
@@ -394,7 +395,16 @@ const TeacherDashboardView = ({
             >
               {showBulk ? '✨ Cadastro Único' : '📂 Importar Frota'}
             </button>
-            <button onClick={() => setView('landing')} className="flex items-center gap-2 px-6 py-3 bg-red-500/10 border-2 border-red-500/20 rounded-2xl text-red-400 hover:bg-red-500/20 transition-all font-display font-bold text-sm">
+            {students.length > 0 && (
+              <button 
+                onClick={() => deleteAllStudents()} 
+                className="flex-1 md:flex-none px-6 py-3 bg-red-500/10 border-2 border-red-500/20 rounded-2xl text-red-400 hover:bg-red-500/20 transition-all font-display font-bold text-sm"
+                title="Remover todos os alunos"
+              >
+                <Trash2 size={18} />
+              </button>
+            )}
+            <button onClick={() => setView('landing')} className="flex items-center gap-2 px-6 py-3 bg-white/5 border-2 border-white/10 rounded-2xl text-white/60 hover:bg-white/10 transition-all font-display font-bold text-sm">
               <LogOut size={18} /> Sair
             </button>
           </div>
@@ -410,7 +420,8 @@ const TeacherDashboardView = ({
                 </h2>
                 <p className="text-sm text-blue-200/50 mb-4 leading-relaxed">
                   Cole sua lista de exploradores:<br/>
-                  <code className="text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded">Nome, Email</code> (um por linha)
+                  <code className="text-pink-400 bg-pink-500/10 px-2 py-0.5 rounded">Nome, Email</code> (um por linha)<br/>
+                  <span className="text-[10px] opacity-70 italic">Ex: João Silva, joao@escola.com</span>
                 </p>
                 <textarea 
                   value={bulkData}
@@ -925,33 +936,77 @@ export default function App() {
   const bulkAddStudents = (data: string) => {
     const lines = data.split('\n').filter(line => line.trim() !== '');
     const newStudents: Student[] = [];
-    let count = 0;
+    let addedCount = 0;
+    let duplicateCount = 0;
+    let invalidCount = 0;
+
+    // Track emails already in the new batch to avoid internal duplicates
+    const batchEmails = new Set<string>();
 
     lines.forEach(line => {
-      const parts = line.split(/[,;\t]/).map(p => p.trim());
+      // Try to split by common separators
+      let parts = line.split(/[,;\t]/).map(p => p.trim());
+      
+      // If only one part, maybe they just put Name and Email separated by space at the end?
+      // Or maybe they just put the name?
+      if (parts.length < 2) {
+        // Try to find an email-like string at the end
+        const emailMatch = line.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+        if (emailMatch) {
+          const email = emailMatch[0];
+          const name = line.replace(email, '').trim();
+          parts = [name, email];
+        }
+      }
+
       if (parts.length >= 2) {
         const name = parts[0];
-        const email = parts[1];
-        if (name && email && !students.some(s => s.email.toLowerCase() === email.toLowerCase())) {
+        const email = parts[1].toLowerCase();
+        
+        const isDuplicateInSystem = students.some(s => s.email.toLowerCase() === email);
+        const isDuplicateInBatch = batchEmails.has(email);
+
+        if (name && email && !isDuplicateInSystem && !isDuplicateInBatch) {
           newStudents.push({
             id: crypto.randomUUID(),
             name,
             email,
             stars: 0,
             medals: [],
-            avatar: AVATARS[0]
+            avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)]
           });
-          count++;
+          batchEmails.add(email);
+          addedCount++;
+        } else if (isDuplicateInSystem || isDuplicateInBatch) {
+          duplicateCount++;
+        } else {
+          invalidCount++;
         }
+      } else {
+        invalidCount++;
       }
     });
 
     if (newStudents.length > 0) {
       setStudents(prev => [...prev, ...newStudents]);
-      showToast(`${count} novos exploradores entraram na frota! ✨`);
+      let msg = `${addedCount} novos exploradores recrutados! ✨`;
+      if (duplicateCount > 0) msg += ` (${duplicateCount} duplicados ignorados)`;
+      showToast(msg);
       triggerConfetti();
     } else {
-      showToast('Nenhum explorador novo detectado na lista.', 'error');
+      if (duplicateCount > 0) {
+        showToast('Todos os e-mails já estão na frota.', 'error');
+      } else {
+        showToast('Formato inválido. Use: Nome, Email', 'error');
+      }
+    }
+  };
+
+  const deleteAllStudents = () => {
+    if (students.length === 0) return;
+    if (confirm(`⚠️ ATENÇÃO: Deseja remover TODOS os ${students.length} exploradores? Esta ação não pode ser desfeita.`)) {
+      setStudents([]);
+      showToast('Frota reiniciada. Todos os exploradores foram removidos.', 'error');
     }
   };
 
@@ -1006,6 +1061,7 @@ export default function App() {
           students={students}
           addStudent={addStudent}
           bulkAddStudents={bulkAddStudents}
+          deleteAllStudents={deleteAllStudents}
           updateStudent={updateStudent}
           deleteStudent={deleteStudent}
           searchQuery={searchQuery}
