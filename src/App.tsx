@@ -359,7 +359,9 @@ const TeacherDashboardView = ({
   deleteStudent, 
   searchQuery, 
   setSearchQuery, 
-  setEditingStudent 
+  setEditingStudent,
+  showToast,
+  triggerConfetti
 }: any) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -525,11 +527,30 @@ const TeacherDashboardView = ({
                       <div className="flex items-center gap-4">
                         <div className="flex gap-1 bg-black/20 px-3 py-2 rounded-xl border border-white/5">
                           {[1, 2, 3].map(i => (
-                            <Star 
-                              key={i} 
-                              size={20} 
-                              className={i <= student.stars ? "text-yellow-400 fill-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]" : "text-white/5"} 
-                            />
+                            <button
+                              key={i}
+                              onClick={() => {
+                                let newStars = student.stars;
+                                if (i === student.stars) {
+                                  newStars = i - 1;
+                                  showToast(`Estrela removida de ${student.name}.`, "error");
+                                } else {
+                                  newStars = i;
+                                  if (newStars > student.stars) {
+                                    triggerConfetti();
+                                    showToast(`Estrela concedida para ${student.name}! ✨`);
+                                  }
+                                }
+                                updateStudent(student.id, { stars: newStars });
+                              }}
+                              className="focus:outline-none transition-transform active:scale-90"
+                              title={i <= student.stars ? "Remover estrela" : "Dar estrela"}
+                            >
+                              <Star 
+                                size={20} 
+                                className={i <= student.stars ? "text-yellow-400 fill-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]" : "text-white/5"} 
+                              />
+                            </button>
                           ))}
                         </div>
                         <div className="flex gap-2">
@@ -1067,6 +1088,8 @@ export default function App() {
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
           setEditingStudent={setEditingStudent}
+          showToast={showToast}
+          triggerConfetti={triggerConfetti}
         />
       )}
       
