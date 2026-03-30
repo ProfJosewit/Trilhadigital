@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: students
+    // Document ID: studentId (email or unique ID)
+    // Fields:
+    //   - id: string (required) - Unique identifier
+    //   - name: string (required, 1-100 chars) - Student name
+    //   - email: string (required, valid email) - Student email
+    //   - stars: number (required, 0-3) - Stars earned
+    //   - medals: list (required, max 50 items) - List of medal IDs
+    //   - avatar: string (required, 1-10 chars) - Avatar emoji
+    //   - suggestion: string (optional, max 500 chars) - Student suggestion
+    //   - suggestionStatus: string (optional, enum: pending, approved, denied)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "maker.josesilva@educbarueri.sp.gov.br" && request.auth.token.email_verified == true));
+    }
+
+    function isStudent(email) {
+      return isAuthenticated() && request.auth.token.email == email;
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasRequiredFields(data, fields) {
+      return data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(data, fields) {
+      return data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidStudent(data) {
+      return hasRequiredFields(data, ['id', 'name', 'email', 'stars', 'medals', 'avatar']) &&
+             hasOnlyAllowedFields(data, ['id', 'name', 'email', 'stars', 'medals', 'avatar', 'suggestion', 'suggestionStatus']) &&
+             data.id is string && data.id.size() > 0 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             isValidEmail(data.email) &&
+             data.stars is int && data.stars >= 0 && data.stars <= 3 &&
+             data.medals is list && data.medals.size() <= 50 &&
+             data.avatar is string && data.avatar.size() > 0 && data.avatar.size() <= 10 &&
+             (!('suggestion' in data) || (data.suggestion is string && data.suggestion.size() <= 500)) &&
+             (!('suggestionStatus' in data) || (data.suggestionStatus in ['pending', 'approved', 'denied']));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /students/{studentId} {
+      // Teachers can read all students. Students can only read their own data.
+      allow read: if isAdmin() || isStudent(resource.data.email);
+
+      // Only teachers can create students.
+      allow create: if isAdmin() && isValidStudent(request.resource.data);
+
+      // Teachers can update any student. Students can only update their own avatar and suggestion.
+      allow update: if (isAdmin() && isValidStudent(request.resource.data)) ||
+                      (isStudent(resource.data.email) &&
+                       isValidStudent(request.resource.data) &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar', 'suggestion', 'suggestionStatus']) &&
+                       request.resource.data.suggestionStatus == 'pending');
+
+      // Only teachers can delete students.
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

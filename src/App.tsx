@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Component } from 'react';
 import { 
   Users, 
   UserCircle, 
@@ -20,10 +20,83 @@ import {
   Settings,
   ShieldCheck,
   Bell,
-  X
+  X,
+  LogIn
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  getDoc,
+  getDocs,
+  writeBatch,
+  query,
+  where,
+  getDocFromServer
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged,
+  signOut,
+  User
+} from 'firebase/auth';
+import { db, auth, handleFirestoreError, OperationType } from './firebase';
+
+// --- Error Boundary ---
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: any;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState;
+  public props: ErrorBoundaryProps;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Ocorreu um erro inesperado.";
+      try {
+        const parsed = JSON.parse(this.state.error.message);
+        if (parsed.error) errorMessage = `Erro de Permissão: ${parsed.operationType} em ${parsed.path}`;
+      } catch (e) {
+        errorMessage = this.state.error.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen bg-[#05050a] text-white flex items-center justify-center p-6">
+          <GlassCard className="p-10 max-w-md text-center">
+            <h2 className="text-3xl font-display font-bold mb-4 text-red-400">Ops! Algo deu errado</h2>
+            <p className="text-blue-200/70 mb-8">{errorMessage}</p>
+            <NeonButton onClick={() => window.location.reload()} variant="blue">
+              Recarregar Aplicativo 🚀
+            </NeonButton>
+          </GlassCard>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- Types & Constants ---
 
@@ -305,6 +378,17 @@ const TeacherLoginView = ({
     }
   };
 
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      showToast('Autenticação Google realizada! 🚀');
+    } catch (error) {
+      console.error(error);
+      showToast('Erro ao entrar com Google.', 'error');
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-[#05050a] text-white relative">
       <div className="absolute top-20 left-20 w-64 h-64 bg-purple-600/10 blur-[100px]" />
@@ -320,6 +404,16 @@ const TeacherLoginView = ({
         </h2>
         
         <div className="space-y-6">
+          <NeonButton onClick={handleGoogleLogin} variant="blue" className="w-full flex items-center justify-center gap-3">
+            <LogIn size={20} /> Entrar com Google
+          </NeonButton>
+
+          <div className="relative flex items-center py-2">
+            <div className="flex-grow border-t border-white/10"></div>
+            <span className="flex-shrink mx-4 text-white/20 text-xs uppercase font-bold tracking-widest">Ou use seu código</span>
+            <div className="flex-grow border-t border-white/10"></div>
+          </div>
+
           <div>
             <label className="block text-sm font-display font-bold text-blue-300/80 mb-2 ml-1">E-mail Espacial</label>
             <input 
@@ -594,38 +688,61 @@ const TeacherDashboardView = ({
   );
 };
 
-const StudentLoginView = ({ setView, loginEmail, setLoginEmail, handleStudentLogin }: any) => (
-  <div className="min-h-screen flex items-center justify-center p-6 bg-[#05050a] text-white relative">
-    <div className="absolute bottom-20 right-20 w-64 h-64 bg-pink-600/10 blur-[100px]" />
-    <GlassCard className="p-10 w-full max-w-md relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-blue-500" />
-      
-      <button onClick={() => setView('landing')} className="text-blue-400 mb-8 flex items-center gap-2 hover:text-blue-300 transition-all font-display font-bold">
-        <ChevronLeft size={24} /> Voltar
-      </button>
-      
-      <h2 className="text-3xl font-display font-bold mb-8 flex items-center gap-3">
-        <UserCircle className="text-pink-400" size={32} /> Acesso Explorador
-      </h2>
-      
-      <div className="space-y-6">
-        <div>
-          <label className="block text-sm font-display font-bold text-blue-300/80 mb-2 ml-1">Seu E-mail de Herói</label>
-          <input 
-            type="email" 
-            value={loginEmail}
-            onChange={(e) => setLoginEmail(e.target.value)}
-            className="w-full bg-white/5 border-2 border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-pink-500 transition-all font-sans text-xl"
-            placeholder="heroi@escola.com"
-          />
+const StudentLoginView = ({ setView, loginEmail, setLoginEmail, handleStudentLogin, showToast }: any) => {
+  const handleGoogleLogin = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      showToast('Autenticação Google realizada! 🚀');
+    } catch (error) {
+      console.error(error);
+      showToast('Erro ao entrar com Google.', 'error');
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6 bg-[#05050a] text-white relative">
+      <div className="absolute bottom-20 right-20 w-64 h-64 bg-pink-600/10 blur-[100px]" />
+      <GlassCard className="p-10 w-full max-w-md relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-pink-500 to-blue-500" />
+        
+        <button onClick={() => setView('landing')} className="text-blue-400 mb-8 flex items-center gap-2 hover:text-blue-300 transition-all font-display font-bold">
+          <ChevronLeft size={24} /> Voltar
+        </button>
+        
+        <h2 className="text-3xl font-display font-bold mb-8 flex items-center gap-3">
+          <UserCircle className="text-pink-400" size={32} /> Acesso Explorador
+        </h2>
+        
+        <div className="space-y-6">
+          <NeonButton onClick={handleGoogleLogin} variant="blue" className="w-full flex items-center justify-center gap-3">
+            <LogIn size={20} /> Entrar com Google
+          </NeonButton>
+
+          <div className="relative flex items-center py-2">
+            <div className="flex-grow border-t border-white/10"></div>
+            <span className="flex-shrink mx-4 text-white/20 text-xs uppercase font-bold tracking-widest">Ou use seu e-mail</span>
+            <div className="flex-grow border-t border-white/10"></div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-display font-bold text-blue-300/80 mb-2 ml-1">Seu E-mail de Herói</label>
+            <input 
+              type="email" 
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              className="w-full bg-white/5 border-2 border-white/10 rounded-2xl px-5 py-4 focus:outline-none focus:border-pink-500 transition-all font-sans text-xl"
+              placeholder="heroi@escola.com"
+            />
+          </div>
+          <NeonButton onClick={handleStudentLogin} variant="pink" className="w-full mt-4">
+            Iniciar Missão! 🚀
+          </NeonButton>
         </div>
-        <NeonButton onClick={handleStudentLogin} variant="pink" className="w-full mt-4">
-          Iniciar Missão! 🚀
-        </NeonButton>
-      </div>
-    </GlassCard>
-  </div>
-);
+      </GlassCard>
+    </div>
+  );
+};
 
 const StudentDashboardView = ({ currentStudent, setView, updateStudent, triggerConfetti, showToast }: any) => {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
@@ -902,6 +1019,8 @@ export default function App() {
   const [teacherPassword, setTeacherPassword] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -917,61 +1036,93 @@ export default function App() {
     });
   };
 
-  // Load data
+  // Auth Listener
   useEffect(() => {
-    const saved = localStorage.getItem('trilha_digital_students');
-    if (saved) {
-      setStudents(JSON.parse(saved));
-    }
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // Save data
+  // Connection Test
   useEffect(() => {
-    localStorage.setItem('trilha_digital_students', JSON.stringify(students));
-    // Update current student if they are in the list
+    async function testConnection() {
+      try {
+        await getDocFromServer(doc(db, 'test', 'connection'));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration.");
+        }
+      }
+    }
+    testConnection();
+  }, []);
+
+  // Load data from Firestore
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    const q = collection(db, 'students');
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const studentList: Student[] = [];
+      snapshot.forEach((doc) => {
+        studentList.push({ ...doc.data() as Student, id: doc.id });
+      });
+      setStudents(studentList);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'students');
+    });
+
+    return () => unsubscribe();
+  }, [isAuthReady]);
+
+  // Update current student if they are in the list
+  useEffect(() => {
     if (currentStudent) {
-      const updated = students.find(s => s.id === currentStudent.id);
+      const updated = students.find(s => s.email.toLowerCase() === currentStudent.email.toLowerCase());
       if (updated) setCurrentStudent(updated);
     }
   }, [students]);
 
   // --- Teacher Logic ---
 
-  const addStudent = (name: string, email: string) => {
+  const addStudent = async (name: string, email: string) => {
     if (students.some(s => s.email.toLowerCase() === email.toLowerCase())) {
       showToast('Este e-mail já está cadastrado!', 'error');
       return;
     }
+    const studentId = email.toLowerCase();
     const newStudent: Student = {
-      id: crypto.randomUUID(),
+      id: studentId,
       name,
-      email,
+      email: email.toLowerCase(),
       stars: 0,
       medals: [],
       avatar: AVATARS[0]
     };
-    setStudents(prev => [...prev, newStudent]);
-    showToast(`Explorador ${name} recrutado com sucesso! 🚀`);
+    
+    try {
+      await setDoc(doc(db, 'students', studentId), newStudent);
+      showToast(`Explorador ${name} recrutado com sucesso! 🚀`);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, `students/${studentId}`);
+    }
   };
 
-  const bulkAddStudents = (data: string) => {
+  const bulkAddStudents = async (data: string) => {
     const lines = data.split('\n').filter(line => line.trim() !== '');
-    const newStudents: Student[] = [];
+    const batch = writeBatch(db);
     let addedCount = 0;
     let duplicateCount = 0;
     let invalidCount = 0;
 
-    // Track emails already in the new batch to avoid internal duplicates
     const batchEmails = new Set<string>();
 
-    lines.forEach(line => {
-      // Try to split by common separators
+    for (const line of lines) {
       let parts = line.split(/[,;\t]/).map(p => p.trim());
       
-      // If only one part, maybe they just put Name and Email separated by space at the end?
-      // Or maybe they just put the name?
       if (parts.length < 2) {
-        // Try to find an email-like string at the end
         const emailMatch = line.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
         if (emailMatch) {
           const email = emailMatch[0];
@@ -988,14 +1139,16 @@ export default function App() {
         const isDuplicateInBatch = batchEmails.has(email);
 
         if (name && email && !isDuplicateInSystem && !isDuplicateInBatch) {
-          newStudents.push({
-            id: crypto.randomUUID(),
+          const studentId = email;
+          const newStudent: Student = {
+            id: studentId,
             name,
             email,
             stars: 0,
             medals: [],
             avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)]
-          });
+          };
+          batch.set(doc(db, 'students', studentId), newStudent);
           batchEmails.add(email);
           addedCount++;
         } else if (isDuplicateInSystem || isDuplicateInBatch) {
@@ -1006,14 +1159,18 @@ export default function App() {
       } else {
         invalidCount++;
       }
-    });
+    }
 
-    if (newStudents.length > 0) {
-      setStudents(prev => [...prev, ...newStudents]);
-      let msg = `${addedCount} novos exploradores recrutados! ✨`;
-      if (duplicateCount > 0) msg += ` (${duplicateCount} duplicados ignorados)`;
-      showToast(msg);
-      triggerConfetti();
+    if (addedCount > 0) {
+      try {
+        await batch.commit();
+        let msg = `${addedCount} novos exploradores recrutados! ✨`;
+        if (duplicateCount > 0) msg += ` (${duplicateCount} duplicados ignorados)`;
+        showToast(msg);
+        triggerConfetti();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'students (batch)');
+      }
     } else {
       if (duplicateCount > 0) {
         showToast('Todos os e-mails já estão na frota.', 'error');
@@ -1023,242 +1180,277 @@ export default function App() {
     }
   };
 
-  const deleteAllStudents = () => {
+  const deleteAllStudents = async () => {
     if (students.length === 0) return;
     if (confirm(`⚠️ ATENÇÃO: Deseja remover TODOS os ${students.length} exploradores? Esta ação não pode ser desfeita.`)) {
-      setStudents([]);
-      showToast('Frota reiniciada. Todos os exploradores foram removidos.', 'error');
+      const batch = writeBatch(db);
+      students.forEach(s => {
+        batch.delete(doc(db, 'students', s.id));
+      });
+      try {
+        await batch.commit();
+        showToast('Frota reiniciada. Todos os exploradores foram removidos.', 'error');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'students (batch)');
+      }
     }
   };
 
-  const updateStudent = (id: string, updates: Partial<Student>) => {
-    setStudents(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  const updateStudent = async (id: string, updates: Partial<Student>) => {
+    try {
+      await updateDoc(doc(db, 'students', id), updates);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `students/${id}`);
+    }
   };
 
-  const deleteStudent = (id: string) => {
+  const deleteStudent = async (id: string) => {
     const student = students.find(s => s.id === id);
     if (confirm(`Deseja mesmo remover o explorador ${student?.name} da frota?`)) {
-      setStudents(prev => prev.filter(s => s.id !== id));
-      showToast(`Explorador removido do sistema.`, 'error');
+      try {
+        await deleteDoc(doc(db, 'students', id));
+        showToast(`Explorador removido do sistema.`, 'error');
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `students/${id}`);
+      }
     }
   };
 
   // --- Student Logic ---
 
-  const handleStudentLogin = () => {
+  const handleStudentLogin = async () => {
     const student = students.find(s => s.email.toLowerCase() === loginEmail.toLowerCase());
     if (student) {
-      setCurrentStudent(student);
-      setView('student_dashboard');
-      showToast(`Bem-vindo, ${student.name}! Missão iniciada. 🚀`);
+      // For students, we might want to sign them in anonymously or just use their email
+      // But rules require authentication. Let's use Google Login for everyone if possible,
+      // or just assume they are identified by email if they sign in with Google.
+      // For now, let's just set the current student and show a message.
+      // To match rules, they NEED to be signed in with that email.
+      if (user && user.email?.toLowerCase() === loginEmail.toLowerCase()) {
+        setCurrentStudent(student);
+        setView('student_dashboard');
+        showToast(`Bem-vindo, ${student.name}! Missão iniciada. 🚀`);
+      } else {
+        showToast('Você precisa entrar com sua conta Google correspondente ao e-mail cadastrado.', 'error');
+        // Trigger Google Login
+        const provider = new GoogleAuthProvider();
+        try {
+          await signInWithPopup(auth, provider);
+        } catch (error) {
+          console.error(error);
+        }
+      }
     } else {
       showToast('E-mail não encontrado. Fale com seu Capitão Professor! 🤖', 'error');
     }
   };
 
   return (
-    <div className="font-sans selection:bg-blue-500 selection:text-white">
-      <FloatingParticles />
-      <AnimatePresence>
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      </AnimatePresence>
-      
-      {view === 'landing' && <LandingView setView={setView} />}
-      
-      {view === 'teacher_login' && (
-        <TeacherLoginView 
-          setView={setView} 
-          teacherEmail={teacherEmail} 
-          setTeacherEmail={setTeacherEmail}
-          teacherPassword={teacherPassword}
-          setTeacherPassword={setTeacherPassword}
-          showToast={showToast}
-        />
-      )}
-      
-      {view === 'teacher_dashboard' && (
-        <TeacherDashboardView 
-          setView={setView}
-          students={students}
-          addStudent={addStudent}
-          bulkAddStudents={bulkAddStudents}
-          deleteAllStudents={deleteAllStudents}
-          updateStudent={updateStudent}
-          deleteStudent={deleteStudent}
-          searchQuery={searchQuery}
-          setSearchQuery={setSearchQuery}
-          setEditingStudent={setEditingStudent}
-          showToast={showToast}
-          triggerConfetti={triggerConfetti}
-        />
-      )}
-      
-      {view === 'student_login' && (
-        <StudentLoginView 
-          setView={setView}
-          loginEmail={loginEmail}
-          setLoginEmail={setLoginEmail}
-          handleStudentLogin={handleStudentLogin}
-        />
-      )}
-      
-      {view === 'student_dashboard' && (
-        <StudentDashboardView 
-          currentStudent={currentStudent}
-          setView={setView}
-          updateStudent={updateStudent}
-          triggerConfetti={triggerConfetti}
-          showToast={showToast}
-        />
-      )}
+    <ErrorBoundary>
+      <div className="font-sans selection:bg-blue-500 selection:text-white">
+        <FloatingParticles />
+        <AnimatePresence>
+          {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </AnimatePresence>
+        
+        {view === 'landing' && <LandingView setView={setView} />}
+        
+        {view === 'teacher_login' && (
+          <TeacherLoginView 
+            setView={setView} 
+            teacherEmail={teacherEmail} 
+            setTeacherEmail={setTeacherEmail}
+            teacherPassword={teacherPassword}
+            setTeacherPassword={setTeacherPassword}
+            showToast={showToast}
+          />
+        )}
+        
+        {view === 'teacher_dashboard' && (
+          <TeacherDashboardView 
+            setView={setView}
+            students={students}
+            addStudent={addStudent}
+            bulkAddStudents={bulkAddStudents}
+            deleteAllStudents={deleteAllStudents}
+            updateStudent={updateStudent}
+            deleteStudent={deleteStudent}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            setEditingStudent={setEditingStudent}
+            showToast={showToast}
+            triggerConfetti={triggerConfetti}
+          />
+        )}
+        
+        {view === 'student_login' && (
+          <StudentLoginView 
+            setView={setView}
+            loginEmail={loginEmail}
+            setLoginEmail={setLoginEmail}
+            handleStudentLogin={handleStudentLogin}
+            showToast={showToast}
+          />
+        )}
+        
+        {view === 'student_dashboard' && (
+          <StudentDashboardView 
+            currentStudent={currentStudent}
+            setView={setView}
+            updateStudent={updateStudent}
+            triggerConfetti={triggerConfetti}
+            showToast={showToast}
+          />
+        )}
 
-      {view === 'ranking' && (
-        <RankingView 
-          students={students}
-          setView={setView}
-        />
-      )}
+        {view === 'ranking' && (
+          <RankingView 
+            students={students}
+            setView={setView}
+          />
+        )}
 
-      {/* Global Modals */}
-      <AnimatePresence>
-        {editingStudent && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setEditingStudent(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-2xl"
-            >
-              <GlassCard className="p-8 max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-3xl font-display font-bold text-blue-400 glow-text">Gerenciar Explorador</h2>
-                  <button onClick={() => setEditingStudent(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
-                    <LogOut size={24} />
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-4 mb-8 p-4 bg-white/5 rounded-2xl border border-white/10">
-                  <div className="text-4xl">{editingStudent.avatar}</div>
-                  <div>
-                    <div className="text-xl font-display font-bold">{editingStudent.name}</div>
-                    <div className="text-sm text-blue-300/40">{editingStudent.email}</div>
+        {/* Global Modals */}
+        <AnimatePresence>
+          {editingStudent && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setEditingStudent(null)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="relative w-full max-w-2xl"
+              >
+                <GlassCard className="p-8 max-h-[90vh] overflow-y-auto">
+                  <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-3xl font-display font-bold text-blue-400 glow-text">Gerenciar Explorador</h2>
+                    <button onClick={() => setEditingStudent(null)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
+                      <LogOut size={24} />
+                    </button>
                   </div>
-                </div>
 
-                <div className="space-y-10">
-                  <div>
-                    <h3 className="text-xl font-display font-bold mb-4 flex items-center gap-3">
-                      <Star className="text-yellow-400" /> Estrelas de Brilho
-                    </h3>
-                    <div className="flex gap-4">
-                      {[0, 1, 2, 3].map(num => (
-                        <button
-                          key={num}
-                          onClick={() => {
-                            const isNewThreeStars = num === 3 && editingStudent.stars < 3;
-                            updateStudent(editingStudent.id, { stars: num });
-                            setEditingStudent({ ...editingStudent, stars: num });
-                            if (isNewThreeStars) {
-                              triggerConfetti();
-                              showToast(`${editingStudent.name} alcançou o Brilho Máximo! ⭐⭐⭐`);
-                            }
-                          }}
-                          className={`w-16 h-16 rounded-2xl border-2 flex items-center justify-center text-2xl font-display font-bold transition-all ${
-                            editingStudent.stars === num 
-                            ? 'bg-blue-500 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] text-white' 
-                            : 'bg-white/5 border-white/10 hover:border-white/30 text-white/40'
-                          }`}
-                        >
-                          {num}
-                        </button>
-                      ))}
+                  <div className="flex items-center gap-4 mb-8 p-4 bg-white/5 rounded-2xl border border-white/10">
+                    <div className="text-4xl">{editingStudent.avatar}</div>
+                    <div>
+                      <div className="text-xl font-display font-bold">{editingStudent.name}</div>
+                      <div className="text-sm text-blue-300/40">{editingStudent.email}</div>
                     </div>
                   </div>
 
-                  <div>
-                    <h3 className="text-xl font-display font-bold mb-4 flex items-center gap-3">
-                      <Trophy className="text-purple-400" /> Medalhas de Missão
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {MEDALS.map(medal => {
-                        const isEarned = editingStudent.medals.includes(medal.id);
-                        return (
+                  <div className="space-y-10">
+                    <div>
+                      <h3 className="text-xl font-display font-bold mb-4 flex items-center gap-3">
+                        <Star className="text-yellow-400" /> Estrelas de Brilho
+                      </h3>
+                      <div className="flex gap-4">
+                        {[0, 1, 2, 3].map(num => (
                           <button
-                            key={medal.id}
+                            key={num}
                             onClick={() => {
-                              const isEarned = editingStudent.medals.includes(medal.id);
-                              const newMedals = isEarned 
-                                ? editingStudent.medals.filter(id => id !== medal.id)
-                                : [...editingStudent.medals, medal.id];
-                              
-                              if (!isEarned) {
+                              const isNewThreeStars = num === 3 && editingStudent.stars < 3;
+                              updateStudent(editingStudent.id, { stars: num });
+                              setEditingStudent({ ...editingStudent, stars: num });
+                              if (isNewThreeStars) {
                                 triggerConfetti();
-                                showToast(`Medalha "${medal.name}" desbloqueada! 🏆`);
+                                showToast(`${editingStudent.name} alcançou o Brilho Máximo! ⭐⭐⭐`);
                               }
-                              
-                              updateStudent(editingStudent.id, { medals: newMedals });
-                              setEditingStudent({ ...editingStudent, medals: newMedals });
                             }}
-                            className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
-                              isEarned 
-                              ? 'bg-purple-500/20 border-purple-500/50 text-purple-200' 
-                              : 'bg-white/5 border-white/10 text-white/40 hover:border-white/30'
+                            className={`w-16 h-16 rounded-2xl border-2 flex items-center justify-center text-2xl font-display font-bold transition-all ${
+                              editingStudent.stars === num 
+                              ? 'bg-blue-500 border-blue-400 shadow-[0_0_20px_rgba(59,130,246,0.5)] text-white' 
+                              : 'bg-white/5 border-white/10 hover:border-white/30 text-white/40'
                             }`}
                           >
-                            <span className="text-3xl">{medal.icon}</span>
-                            <span className="text-sm font-display font-bold leading-tight">{medal.name}</span>
-                            {isEarned && <CheckCircle2 size={20} className="ml-auto text-purple-400" />}
+                            {num}
                           </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {editingStudent.suggestion && (
-                    <div className="p-6 bg-blue-500/10 rounded-2xl border-2 border-blue-500/20">
-                      <h3 className="text-xl font-display font-bold mb-3 flex items-center gap-3 text-blue-400">
-                        <Edit2 size={20} /> Sugestão do Explorador
-                      </h3>
-                      <p className="text-blue-100 italic leading-relaxed mb-6">
-                        "{editingStudent.suggestion}"
-                      </p>
-                      <div className="flex gap-4">
-                        <button 
-                          onClick={() => {
-                            updateStudent(editingStudent.id, { suggestionStatus: 'approved' });
-                            setEditingStudent({ ...editingStudent, suggestionStatus: 'approved' });
-                            showToast("Sugestão aprovada! ✅");
-                          }}
-                          className={`flex-1 py-3 rounded-xl font-display font-bold transition-all border-2 ${editingStudent.suggestionStatus === 'approved' ? 'bg-emerald-500 border-emerald-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'}`}
-                        >
-                          Aprovar ✅
-                        </button>
-                        <button 
-                          onClick={() => {
-                            updateStudent(editingStudent.id, { suggestionStatus: 'denied' });
-                            setEditingStudent({ ...editingStudent, suggestionStatus: 'denied' });
-                            showToast("Sugestão negada. ❌");
-                          }}
-                          className={`flex-1 py-3 rounded-xl font-display font-bold transition-all border-2 ${editingStudent.suggestionStatus === 'denied' ? 'bg-red-500 border-red-400' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`}
-                        >
-                          Negar ❌
-                        </button>
+                        ))}
                       </div>
                     </div>
-                  )}
-                </div>
-              </GlassCard>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-    </div>
+
+                    <div>
+                      <h3 className="text-xl font-display font-bold mb-4 flex items-center gap-3">
+                        <Trophy className="text-purple-400" /> Medalhas de Missão
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {MEDALS.map(medal => {
+                          const isEarned = editingStudent.medals.includes(medal.id);
+                          return (
+                            <button
+                              key={medal.id}
+                              onClick={() => {
+                                const isEarned = editingStudent.medals.includes(medal.id);
+                                const newMedals = isEarned 
+                                  ? editingStudent.medals.filter(id => id !== medal.id)
+                                  : [...editingStudent.medals, medal.id];
+                                
+                                if (!isEarned) {
+                                  triggerConfetti();
+                                  showToast(`Medalha "${medal.name}" desbloqueada! 🏆`);
+                                }
+                                
+                                updateStudent(editingStudent.id, { medals: newMedals });
+                                setEditingStudent({ ...editingStudent, medals: newMedals });
+                              }}
+                              className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                                isEarned 
+                                ? 'bg-purple-500/20 border-purple-500/50 text-purple-200' 
+                                : 'bg-white/5 border-white/10 text-white/40 hover:border-white/30'
+                              }`}
+                            >
+                              <span className="text-3xl">{medal.icon}</span>
+                              <span className="text-sm font-display font-bold leading-tight">{medal.name}</span>
+                              {isEarned && <CheckCircle2 size={20} className="ml-auto text-purple-400" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {editingStudent.suggestion && (
+                      <div className="p-6 bg-blue-500/10 rounded-2xl border-2 border-blue-500/20">
+                        <h3 className="text-xl font-display font-bold mb-3 flex items-center gap-3 text-blue-400">
+                          <Edit2 size={20} /> Sugestão do Explorador
+                        </h3>
+                        <p className="text-blue-100 italic leading-relaxed mb-6">
+                          "{editingStudent.suggestion}"
+                        </p>
+                        <div className="flex gap-4">
+                          <button 
+                            onClick={() => {
+                              updateStudent(editingStudent.id, { suggestionStatus: 'approved' });
+                              setEditingStudent({ ...editingStudent, suggestionStatus: 'approved' });
+                              showToast("Sugestão aprovada! ✅");
+                            }}
+                            className={`flex-1 py-3 rounded-xl font-display font-bold transition-all border-2 ${editingStudent.suggestionStatus === 'approved' ? 'bg-emerald-500 border-emerald-400' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'}`}
+                          >
+                            Aprovar ✅
+                          </button>
+                          <button 
+                            onClick={() => {
+                              updateStudent(editingStudent.id, { suggestionStatus: 'denied' });
+                              setEditingStudent({ ...editingStudent, suggestionStatus: 'denied' });
+                              showToast("Sugestão negada. ❌");
+                            }}
+                            className={`flex-1 py-3 rounded-xl font-display font-bold transition-all border-2 ${editingStudent.suggestionStatus === 'denied' ? 'bg-red-500 border-red-400' : 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20'}`}
+                          >
+                            Negar ❌
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </GlassCard>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    </ErrorBoundary>
   );
 }

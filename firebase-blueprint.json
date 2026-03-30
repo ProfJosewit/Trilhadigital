@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student",
+      "description": "A student in the gamified classroom system.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier for the student." },
+        "name": { "type": "string", "description": "Full name of the student." },
+        "email": { "type": "string", "format": "email", "description": "Email address of the student." },
+        "stars": { "type": "integer", "description": "Number of stars earned (0-3)." },
+        "medals": { "type": "array", "items": { "type": "string" }, "description": "List of medal IDs earned by the student." },
+        "avatar": { "type": "string", "description": "Emoji representing the student's avatar." },
+        "suggestion": { "type": "string", "description": "Optional suggestion submitted by the student." },
+        "suggestionStatus": { "type": "string", "enum": ["pending", "approved", "denied"], "description": "Status of the student's suggestion." }
+      },
+      "required": ["id", "name", "email", "stars", "medals", "avatar"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "Collection of students."
+    }
+  }
+}
