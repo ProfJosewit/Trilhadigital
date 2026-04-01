@@ -384,7 +384,7 @@ const TeacherLoginView = ({
       
       // Se o usuário não existir ou a senha estiver errada, verificamos o fallback hardcoded
       // para tentar criar a conta no Firebase Auth automaticamente se for o professor oficial.
-      if (teacherEmail === 'maker.josesilva@educbarueri.sp.gov.br' && teacherPassword === '#Jose159632') {
+      if (teacherEmail === 'maker.josesilva@educbarueri.sp.gov.br' && teacherPassword === 'profjosesilva') {
         try {
           await createUserWithEmailAndPassword(auth, teacherEmail, teacherPassword);
           setView('teacher_dashboard');
