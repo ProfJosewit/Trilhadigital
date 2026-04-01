@@ -44,6 +44,8 @@ import {
   GoogleAuthProvider, 
   onAuthStateChanged,
   signOut,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   User
 } from 'firebase/auth';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
@@ -371,42 +373,41 @@ const TeacherLoginView = ({
   students,
   setCurrentStudent
 }: any) => {
-  const handleTeacherLogin = () => {
-    if (teacherEmail === 'maker.josesilva@educbarueri.sp.gov.br' && teacherPassword === '#Jose159632') {
+  const handleTeacherLogin = async () => {
+    try {
+      // Tenta logar no Firebase Auth com e-mail e senha
+      await signInWithEmailAndPassword(auth, teacherEmail, teacherPassword);
       setView('teacher_dashboard');
       showToast('Bem-vindo de volta, Capitão Professor! 👨‍🏫');
-    } else {
-      showToast('Ops! E-mail ou senha errados. Tente de novo! 🤖', 'error');
-    }
-  };
-
-  const handleGoogleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      const result = await signInWithPopup(auth, provider);
-      if (result.user.email === 'maker.josesilva@educbarueri.sp.gov.br') {
-        setView('teacher_dashboard');
-        showToast('Bem-vindo, Capitão Professor! 👨‍🏫');
-      } else {
-        // Check if student
-        const student = students.find(s => s.email.toLowerCase() === result.user.email?.toLowerCase());
-        if (student) {
-          setCurrentStudent(student);
-          setView('student_dashboard');
-          showToast(`Bem-vindo, ${student.name}! Missão iniciada. 🚀`);
-        } else {
-          showToast('Acesso negado. Apenas o professor ou alunos cadastrados podem acessar.', 'error');
-        }
-      }
     } catch (error: any) {
       console.error(error);
-      if (error.code === 'auth/unauthorized-domain') {
-        showToast('Domínio não autorizado no Firebase! Adicione a URL da Vercel no Console do Firebase.', 'error');
-        console.error('ERRO DE DOMÍNIO: Acesse o Console do Firebase > Authentication > Settings > Authorized Domains e adicione este domínio.');
-      } else if (error.code === 'auth/popup-blocked') {
-        showToast('Pop-up bloqueado pelo navegador. Por favor, permita pop-ups para este site.', 'error');
+      
+      // Se o usuário não existir ou a senha estiver errada, verificamos o fallback hardcoded
+      // para tentar criar a conta no Firebase Auth automaticamente se for o professor oficial.
+      if (teacherEmail === 'maker.josesilva@educbarueri.sp.gov.br' && teacherPassword === '#Jose159632') {
+        try {
+          await createUserWithEmailAndPassword(auth, teacherEmail, teacherPassword);
+          setView('teacher_dashboard');
+          showToast('Conta de Professor configurada com sucesso! 🚀');
+          return;
+        } catch (createError: any) {
+          console.error('Erro ao criar conta de professor:', createError);
+          // Se já existe mas a senha no Firebase é diferente da hardcoded, o login falhou acima.
+          if (createError.code === 'auth/email-already-in-use') {
+            showToast('A senha digitada não confere com a cadastrada no sistema.', 'error');
+          } else {
+            showToast('Erro ao configurar acesso do professor. Verifique o Console do Firebase.', 'error');
+          }
+          return;
+        }
+      }
+
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-email') {
+        showToast('Ops! E-mail ou senha incorretos. 🤖', 'error');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        showToast('Login por e-mail desativado no Firebase. Ative-o no Console.', 'error');
       } else {
-        showToast('Erro ao entrar com Google. Verifique sua conexão.', 'error');
+        showToast('Erro ao entrar. Verifique sua conexão.', 'error');
       }
     }
   };
@@ -426,16 +427,6 @@ const TeacherLoginView = ({
         </h2>
         
         <div className="space-y-6">
-          <NeonButton onClick={handleGoogleLogin} variant="blue" className="w-full flex items-center justify-center gap-3">
-            <LogIn size={20} /> Entrar com Google
-          </NeonButton>
-
-          <div className="relative flex items-center py-2">
-            <div className="flex-grow border-t border-white/10"></div>
-            <span className="flex-shrink mx-4 text-white/20 text-xs uppercase font-bold tracking-widest">Ou use seu código</span>
-            <div className="flex-grow border-t border-white/10"></div>
-          </div>
-
           <div>
             <label className="block text-sm font-display font-bold text-blue-300/80 mb-2 ml-1">E-mail Espacial</label>
             <input 
@@ -457,7 +448,7 @@ const TeacherLoginView = ({
             />
           </div>
           <NeonButton onClick={handleTeacherLogin} variant="purple" className="w-full mt-4">
-            Ativar Painel 🚀
+            Acessar Painel 🚀
           </NeonButton>
         </div>
       </GlassCard>
