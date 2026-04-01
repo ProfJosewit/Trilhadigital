@@ -367,7 +367,9 @@ const TeacherLoginView = ({
   setTeacherEmail, 
   teacherPassword, 
   setTeacherPassword, 
-  showToast 
+  showToast,
+  students,
+  setCurrentStudent
 }: any) => {
   const handleTeacherLogin = () => {
     if (teacherEmail === 'maker.josesilva@educbarueri.sp.gov.br' && teacherPassword === '#Jose159632') {
@@ -381,11 +383,31 @@ const TeacherLoginView = ({
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      showToast('Autenticação Google realizada! 🚀');
-    } catch (error) {
+      const result = await signInWithPopup(auth, provider);
+      if (result.user.email === 'maker.josesilva@educbarueri.sp.gov.br') {
+        setView('teacher_dashboard');
+        showToast('Bem-vindo, Capitão Professor! 👨‍🏫');
+      } else {
+        // Check if student
+        const student = students.find(s => s.email.toLowerCase() === result.user.email?.toLowerCase());
+        if (student) {
+          setCurrentStudent(student);
+          setView('student_dashboard');
+          showToast(`Bem-vindo, ${student.name}! Missão iniciada. 🚀`);
+        } else {
+          showToast('Acesso negado. Apenas o professor ou alunos cadastrados podem acessar.', 'error');
+        }
+      }
+    } catch (error: any) {
       console.error(error);
-      showToast('Erro ao entrar com Google.', 'error');
+      if (error.code === 'auth/unauthorized-domain') {
+        showToast('Domínio não autorizado no Firebase! Adicione a URL da Vercel no Console do Firebase.', 'error');
+        console.error('ERRO DE DOMÍNIO: Acesse o Console do Firebase > Authentication > Settings > Authorized Domains e adicione este domínio.');
+      } else if (error.code === 'auth/popup-blocked') {
+        showToast('Pop-up bloqueado pelo navegador. Por favor, permita pop-ups para este site.', 'error');
+      } else {
+        showToast('Erro ao entrar com Google. Verifique sua conexão.', 'error');
+      }
     }
   };
 
@@ -461,6 +483,7 @@ const TeacherDashboardView = ({
   const [email, setEmail] = useState('');
   const [bulkData, setBulkData] = useState('');
   const [showBulk, setShowBulk] = useState(false);
+  const [showDeployGuide, setShowDeployGuide] = useState(false);
 
   const filteredStudents = students.filter((s: any) => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -484,7 +507,13 @@ const TeacherDashboardView = ({
               <p className="text-blue-200/40 font-medium">Comandando a jornada de {students.length} exploradores.</p>
             </div>
           </div>
-          <div className="flex gap-4 w-full md:w-auto">
+          <div className="flex flex-wrap gap-4 w-full md:w-auto">
+            <button 
+              onClick={() => setShowDeployGuide(true)} 
+              className="flex-1 md:flex-none px-6 py-3 bg-blue-500/10 border-2 border-blue-500/20 rounded-2xl text-blue-400 hover:bg-blue-500/20 transition-all font-display font-bold text-sm flex items-center justify-center gap-2"
+            >
+              <Settings size={18} /> Guia Vercel
+            </button>
             <button 
               onClick={() => setShowBulk(!showBulk)} 
               className="flex-1 md:flex-none px-6 py-3 bg-white/5 border-2 border-white/10 rounded-2xl text-blue-400 hover:bg-blue-500/10 transition-all font-display font-bold text-sm"
@@ -684,19 +713,104 @@ const TeacherDashboardView = ({
           </div>
         </div>
       </div>
+
+      {/* Deployment Guide Modal */}
+      <AnimatePresence>
+        {showDeployGuide && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeployGuide(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-2xl"
+            >
+              <GlassCard className="p-8 max-h-[90vh] overflow-y-auto border-blue-500/50">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-3xl font-display font-bold text-blue-400 glow-text">Guia de Lançamento (Vercel)</h2>
+                  <button onClick={() => setShowDeployGuide(false)} className="p-2 hover:bg-white/10 rounded-xl transition-all">
+                    <X size={24} />
+                  </button>
+                </div>
+
+                <div className="space-y-8 text-blue-100/80">
+                  <section className="bg-white/5 p-6 rounded-3xl border border-white/10">
+                    <h3 className="text-xl font-display font-bold text-blue-300 mb-4 flex items-center gap-2">
+                      <ShieldCheck size={20} /> 1. Autorizar Domínio
+                    </h3>
+                    <p className="text-sm leading-relaxed mb-4">
+                      O Firebase bloqueia o login do Google em sites desconhecidos. Você precisa avisar que seu site na Vercel é seguro.
+                    </p>
+                    <ol className="list-decimal list-inside space-y-2 text-sm ml-2">
+                      <li>Acesse o <a href="https://console.firebase.google.com/" target="_blank" rel="noreferrer" className="text-blue-400 underline">Console do Firebase</a>.</li>
+                      <li>Vá em <b>Authentication</b> {'>'} <b>Settings</b> {'>'} <b>Authorized Domains</b>.</li>
+                      <li>Clique em <b>Add Domain</b> e cole a URL do seu site (ex: <code className="bg-white/10 px-1 rounded">trilha-digital.vercel.app</code>).</li>
+                    </ol>
+                  </section>
+
+                  <section className="bg-white/5 p-6 rounded-3xl border border-white/10">
+                    <h3 className="text-xl font-display font-bold text-blue-300 mb-4 flex items-center gap-2">
+                      <Settings size={20} /> 2. Arquivo de Configuração
+                    </h3>
+                    <p className="text-sm leading-relaxed">
+                      Certifique-se de que o arquivo <code className="bg-white/10 px-1 rounded">firebase-applet-config.json</code> está no seu repositório do GitHub. Sem ele, o site não saberá como conectar ao banco de dados.
+                    </p>
+                  </section>
+
+                  <section className="bg-white/5 p-6 rounded-3xl border border-white/10">
+                    <h3 className="text-xl font-display font-bold text-blue-300 mb-4 flex items-center gap-2">
+                      <CheckCircle2 size={20} /> 3. Testar Login
+                    </h3>
+                    <p className="text-sm leading-relaxed">
+                      Após adicionar o domínio, aguarde cerca de 1 minuto e tente logar novamente na Vercel. Se o pop-up abrir e fechar sozinho, o acesso foi liberado!
+                    </p>
+                  </section>
+                </div>
+
+                <NeonButton onClick={() => setShowDeployGuide(false)} className="w-full mt-10">
+                  Entendido, Capitão! 🚀
+                </NeonButton>
+              </GlassCard>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
 
-const StudentLoginView = ({ setView, loginEmail, setLoginEmail, handleStudentLogin, showToast }: any) => {
+const StudentLoginView = ({ setView, loginEmail, setLoginEmail, handleStudentLogin, showToast, students, setCurrentStudent }: any) => {
   const handleGoogleLogin = async () => {
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      showToast('Autenticação Google realizada! 🚀');
-    } catch (error) {
+      const result = await signInWithPopup(auth, provider);
+      const student = students.find((s: any) => s.email.toLowerCase() === result.user.email?.toLowerCase());
+      if (student) {
+        setCurrentStudent(student);
+        setView('student_dashboard');
+        showToast(`Bem-vindo, ${student.name}! Missão iniciada. 🚀`);
+      } else if (result.user.email === 'maker.josesilva@educbarueri.sp.gov.br') {
+        setView('teacher_dashboard');
+        showToast('Bem-vindo, Capitão Professor! 👨‍🏫');
+      } else {
+        showToast('E-mail não encontrado na lista de exploradores.', 'error');
+      }
+    } catch (error: any) {
       console.error(error);
-      showToast('Erro ao entrar com Google.', 'error');
+      if (error.code === 'auth/unauthorized-domain') {
+        showToast('Domínio não autorizado no Firebase! Adicione a URL da Vercel no Console do Firebase.', 'error');
+        console.error('ERRO DE DOMÍNIO: Acesse o Console do Firebase > Authentication > Settings > Authorized Domains e adicione este domínio.');
+      } else if (error.code === 'auth/popup-blocked') {
+        showToast('Pop-up bloqueado pelo navegador. Por favor, permita pop-ups para este site.', 'error');
+      } else {
+        showToast('Erro ao entrar com Google. Verifique sua conexão.', 'error');
+      }
     }
   };
 
@@ -1045,6 +1159,23 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Auto-redirect if already logged in
+  useEffect(() => {
+    if (isAuthReady && user && (view === 'landing' || view === 'teacher_login' || view === 'student_login')) {
+      if (user.email === 'maker.josesilva@educbarueri.sp.gov.br') {
+        setView('teacher_dashboard');
+        showToast('Bem-vindo de volta, Capitão Professor! 👨‍🏫');
+      } else if (students.length > 0) {
+        const student = students.find(s => s.email.toLowerCase() === user.email?.toLowerCase());
+        if (student) {
+          setCurrentStudent(student);
+          setView('student_dashboard');
+          showToast(`Bem-vindo de volta, ${student.name}! 🚀`);
+        }
+      }
+    }
+  }, [isAuthReady, user, students, view]);
+
   // Connection Test
   useEffect(() => {
     async function testConnection() {
@@ -1071,7 +1202,11 @@ export default function App() {
       });
       setStudents(studentList);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'students');
+      console.warn('Firestore snapshot error (likely permissions):', error);
+      // Don't crash the app for students who can't see the whole list
+      if (view === 'teacher_dashboard' || view === 'ranking') {
+        handleFirestoreError(error, OperationType.LIST, 'students');
+      }
     });
 
     return () => unsubscribe();
@@ -1263,6 +1398,8 @@ export default function App() {
             teacherPassword={teacherPassword}
             setTeacherPassword={setTeacherPassword}
             showToast={showToast}
+            students={students}
+            setCurrentStudent={setCurrentStudent}
           />
         )}
         
@@ -1290,6 +1427,8 @@ export default function App() {
             setLoginEmail={setLoginEmail}
             handleStudentLogin={handleStudentLogin}
             showToast={showToast}
+            students={students}
+            setCurrentStudent={setCurrentStudent}
           />
         )}
         
